@@ -381,21 +381,23 @@ class Serenity extends Emitter<WorldEventSignals & ServerEvents> {
     // Close the console interface
     this.console.interface.close();
 
+    // Set the server state as shutting
+    this.state = ServerState.ShuttingDown;
+    const players = this.players.values();
+
+    // Write all the players at first
+    for (const player of players) {
+      // Get the default world from the serenity instance
+      const world = this.getWorld(); // Default world
+      // Write the player's data to the storage
+      world.provider.writePlayer(player.uuid, player.getStorage());
+    }
+
     // Emit the server shutdown event
     await this.emitAsync(ServerEvent.Stop, 0 as never);
 
-    // Set the server state as shutting
-    this.state = ServerState.ShuttingDown;
-
-    // Disconnect all players
-    for (const player of this.players.values()) {
-      // Get the default world from the serenity instance
-      const world = this.getWorld(); // Default world
-
-      // Write the player's data to the storage
-      world.provider.writePlayer(player.uuid, player.getStorage());
-
-      // Disconnect the player from the server
+    // Disconnect after plugin onShutDown
+    for (const player of players) {
       player.disconnect(
         this.properties.shutdownMessage, // Use the shutdown message from the properties
         DisconnectReason.Disconnected
