@@ -381,34 +381,36 @@ class Serenity extends Emitter<WorldEventSignals & ServerEvents> {
     // Close the console interface
     this.console.interface.close();
 
-    // Set the server state as shutting
+    // Set the server state as shutting down
     this.state = ServerState.ShuttingDown;
-    const players = this.players.values();
 
-    // Write all the players at first
-    for (const player of players) {
-      // Get the default world from the serenity instance
-      const world = this.getWorld(); // Default world
-      // Write the player's data to the storage
+    // Save all player data to their respective world providers
+    for (const player of this.players.values()) {
+      const world = player.dimension?.world ?? this.getWorld();
       world.provider.writePlayer(player.uuid, player.getStorage());
     }
 
-    // Emit the server shutdown event
-    await this.emitAsync(ServerEvent.Stop, 0 as never);
-
-    // Disconnect after plugin onShutDown
-    for (const player of players) {
-      player.disconnect(
-        this.properties.shutdownMessage, // Use the shutdown message from the properties
-        DisconnectReason.Disconnected
-      );
-
-      // Remove the player from the players map
-      this.players.delete(player.connection);
+    // Save all world providers before plugin shutdown
+    for (const world of this.worlds.values()) {
+      await world.provider.onSave();
     }
 
-    // Shutdown all world providers
-    for (const world of this.worlds.values()) void world.provider.onShutdown();
+    // Emit the server shutdown event (triggers plugin shutdown)
+    await this.emitAsync(ServerEvent.Stop, 0 as never);
+
+    // Disconnect all players after plugins have cleaned up
+    for (const player of this.players.values()) {
+      player.disconnect(
+        this.properties.shutdownMessage,
+        DisconnectReason.Disconnected
+      );
+    }
+    this.players.clear();
+
+    // Shutdown all world providers after everything else is done
+    for (const world of this.worlds.values()) {
+      await world.provider.onShutdown();
+    }
 
     // Write the permissions to the permissions path
     if (typeof this.properties.permissions === "string")
