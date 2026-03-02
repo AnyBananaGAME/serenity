@@ -220,10 +220,8 @@ class PlayerChunkRenderingTrait extends PlayerTrait {
     const d = Math.floor(distance ?? this.viewDistance);
     const offsets = this.getRadialOffsets(d);
 
-    // Collect all chunk requests first, then load in parallel
-    const chunkRequests: Array<{ x: number; z: number; hash: bigint }> = [];
-
-    // Iterate over all chunks within the specified distance
+    // Process chunks in radial order (closest first) but load them as we go
+    // This ensures closest chunks are sent first while still loading efficiently
     for (let i = 0; i < offsets.length; i += 2) {
       // Check if the generation has changed
       if (gen !== this.sendGeneration) return;
@@ -238,20 +236,21 @@ class PlayerChunkRenderingTrait extends PlayerTrait {
 
       // Mark as pending immediately
       this.pending.add(hash);
-      chunkRequests.push({ x, z, hash });
-    }
 
-    // Load all chunks in parallel for much faster loading
-    const chunkPromises = chunkRequests.map(({ x, z }) =>
-      this.player.dimension.getChunkAsync(x, z)
-    );
-
-    const loadedChunks = await Promise.all(chunkPromises);
-
-    // Add all loaded chunks to the output array
-    for (const chunk of loadedChunks) {
-      if (gen !== this.sendGeneration) return;
-      out.push(chunk);
+      // Load and add chunk immediately - this sends chunks as fast as they load
+      // in the correct radial order (closest to farthest)
+      try {
+        const chunk = await this.player.dimension.getChunkAsync(x, z);
+        if (gen !== this.sendGeneration) return;
+        out.push(chunk);
+      } catch (error) {
+        // If chunk fails to load, remove from pending and continue
+        this.pending.delete(hash);
+        this.player.dimension.world.logger.error(
+          `Failed to load chunk at (${x}, ${z}) for player ${this.player.username}`,
+          error
+        );
+      }
     }
   }
 
